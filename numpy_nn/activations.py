@@ -1,25 +1,19 @@
 import numpy as np
 
 def softmax(z):
-    return np.exp(z) / np.reshape(np.sum(np.exp(z), 1), (-1, 1))
-
-def softmax_comps(z, comps):
-    return np.exp(z) / np.sum(np.exp(comps))
+    shiftx = z - np.max(z)
+    exps = np.exp(shiftx)
+    return exps / np.sum(exps)
 
 def softmax_prime(z):
-    # z = softmax(z)
-    # Number of records
-    m = z.shape[0]
-    n = z.shape[1]
-    prime = np.zeros((m, n))
-    for i in range(m):
-        comps = z[i, :]
-        for j in range(n):
-            if i == j:
-                prime[i, j] = z[i, j], (1 - z[i, j]) 
-            else:
-                prime[i, j] = -z[i, j] * z[i, j]
-    return prime
+    labels = z.shape[1]
+    der = np.zeros(z.shape)
+    for i in range(labels):
+        I = np.eye(z.shape[0])
+        x = np.reshape(z[:, i], (-1, 1))
+        der[:, i:i+1] = np.dot((I - softmax(x).T), softmax(x))
+    return der
+
 
 def sigmoid(z):
     return 1 / (1 + np.exp(-z))

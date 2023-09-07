@@ -1,200 +1,235 @@
 import numpy as np
 from tqdm import tqdm
+import h5py
+import activations
 
 class DenseLayer():
-    def __init__(self, num_neurons, inputs, activation, activation_prime, is_input = False, is_output = False):
+    def __init__(self, num_neurons, inputs, activation, is_input = False, is_output = False):
         self.num_neurons = num_neurons
         self.inputs = inputs
-        self.weights = np.random.randn(num_neurons, inputs + 1)
-        self.activation = activation
-        self.activation_prime = activation_prime
+        self.weights = np.random.randn(num_neurons, inputs)
+        self.bias = np.zeros((num_neurons, 1))
+        self.activation_name = activation
+        if activation == 'sigmoid':
+            self.activation = activations.sigmoid
+            self.activation_prime = activations.sigmoid_prime
+        elif activation == 'softmax':
+            self.activation = activations.softmax
+            self.activation_prime = activations.softmax_prime
+        else:
+            self.activation = activations.dummy_activation
+            self.activation_prime = activations.dummy_activation
         self.is_output = is_output
         self.is_input = is_input
-    
+
     #Feeds forward the neural network
     def forward_propagation(self, X):
         if self.is_input:
-            return X
+            return X, X
         else:
-            ones = np.ones((X.shape[0], 1))
-            temp_x = np.append(ones, X, 1)
-            return np.transpose(self.activation(np.dot(self.weights, np.transpose(temp_x))))
-    
-    #Calculates the cost of layer
-    def calculate_error(self, X, output, next_error = None, next_weights = None) -> np.ndarray:
-        m = X.shape[0] # (m, n)
-        if self.is_output:
-            # m -> Number of records
-            # n -> Number of features
-            # l -> Number of labels
-            prediction = self.forward_propagation(X) # (m, l)
-            error = np.zeros((self.num_neurons, m)) # (l, m)
-            out = np.transpose(output) # (1, m)
-            for i in range(self.num_neurons):
-                temp_output = out == i # (1, m)
-                temp_prediction = np.reshape(prediction[:, i], (1, -1)) # (1, m)
-                error[i, :] = temp_prediction - temp_output
-            return  error
-        else:
-            if next_error is None or next_weights is None:
-                return np.array([])
-            ones = np.ones((X.shape[0], 1))
-            temp_x = np.append(ones, X, 1)
-            z = np.dot(self.weights, np.transpose(temp_x))
-            ones = np.ones((1, z.shape[1]))
-            z = np.append(ones, z, 0)
-            error = np.multiply(np.dot(np.transpose(next_weights), next_error), self.activation_prime(z))
-            return error[1:, :]
-
-    # Calculates the gradient
-    def calc_grad(self, prev_output, next_error, lamda: float):
-        temp_weights = self.weights
-        temp_weights[:, 1] = 0
-        m = prev_output.shape[0]
-        delta = np.transpose(np.dot(next_error, prev_output))
-        delta = delta / m
-        zeros = np.zeros((1, delta.shape[1]))
-        delta = np.transpose(np.append(zeros, delta, 0))
-        return delta + (lamda / m) * temp_weights
-
-    # Calculates the back propagation
-    def back_propagation(self, prev_output, next_error, lamda: float, alpha : float = 0.01):
-        delta = self.calc_grad(prev_output, next_error, lamda)
-        self.weights -= alpha * delta
+            Z = np.transpose(np.dot(self.weights, np.transpose(X)) + self.bias)
+            A = self.activation(Z)
+            return A, Z
 
     # Calculates the loss
-    def loss(self, X: np.ndarray, y: np.ndarray, num_labels: int, lamda: float):
-        m = y.shape[0]
+    def loss(self, prediction: np.ndarray, y: np.ndarray, num_labels: int, lamda: float):
+        m = prediction.shape[0]
         J = 0
-        temp_theta = np.array(self.weights)
-        temp_theta[:, 0] = 0
-        prediction = np.transpose(self.forward_propagation(X))
         y = np.reshape(y, (-1, 1))
-        ones = np.ones((m, 1))
-        for i in range(0, num_labels):
+        for i in range(num_labels):
             temp_y = y == i
-            temp_prediction = np.reshape(prediction[i, :], (-1, 1))
-            J += (1 / m) * np.sum(-np.multiply(temp_y, np.log(temp_prediction)) - np.multiply((1 - temp_y), np.log(ones - temp_prediction))) + (lamda / (2 * m)) * np.sum(np.square(temp_theta))
-        return J
+            temp_prediction = np.reshape(prediction[:, i], (-1, 1))
+            J += - (1 / num_labels) * np.sum(temp_y * np.log(temp_prediction) + (1-temp_y) * np.log(1 - temp_prediction))
+        return (1 / m) * J  + (lamda / (2 * m)) * np.sum(np.square(self.weights))
 
-    #Checks whether the gradient value is correctly calculated or not
-    def check_gradient(self, epsilon: float, prev_output: np.ndarray, y: np.ndarray, next_error: np.ndarray, num_labels: int, aplha: float, lamda: float):
-        gradient = self.calc_grad(prev_output, next_error, lamda)
-        numerical_grad = np.zeros(self.weights.shape)
-        initial_weights = self.weights
-        temp_weights = np.zeros(self.weights.shape)
-        for r in range(0, temp_weights.shape[0]):
-            for c in range(0, temp_weights.shape[1]):
-                temp_weights[r, c] = epsilon
-                self.weights = initial_weights + temp_weights
-                cost1 = self.loss(prev_output, y, num_labels, lamda)
-                self.weights = initial_weights - temp_weights
-                cost2 = self.loss(prev_output, y, num_labels, lamda)
-                numerical_grad[r, c] = (cost1 - cost2) / (2 * epsilon)
-                temp_weights[r, c] = 0
+# Saves the model to an h5 file
+def save_model(layers: list[DenseLayer], filename: str):
+    with h5py.File(filename, 'w') as file:
+        file.create_dataset("layers", data= layers.__len__())
+        for i in range(layers.__len__()):
+            layer = layers[i]
+            file.create_dataset(f"layer{i + 1}_weights", data= layer.weights)
+            file.create_dataset(f"layer{i + 1}_bias", data= layer.bias)
+            file.create_dataset(f"layer{i + 1}_activation", data=[layer.activation_name])
+            file.create_dataset(f"layer{i + 1}_connection", data=[layer.is_input, layer.is_output])
 
-        self.weights = initial_weights
-        # return np.linalg.norm(gradient - numerical_grad) / np.linalg.norm(numerical_grad + gradient)
-        return np.linalg.norm(np.abs(gradient - numerical_grad)) / np.linalg.norm(np.abs(gradient) + np.abs(numerical_grad))
+# Loads the data from the model
+def load_model(filename):
+    layers = []
+    with h5py.File(filename, 'r') as file:
+        n = file['layers'][()]
+        # Initializing all the layers
+        for i in range(n):
+            weights = file[f'layer{i + 1}_weights'][()]
+            bias = file[f'layer{i + 1}_bias'][()]
+            activation = file[f'layer{i + 1}_activation'][()].astype('U')[0]
+            connections = file[f'layer{i + 1}_connection'][()]
+            layer = DenseLayer(weights.shape[0], weights.shape[1], activation, connections[0], connections[1])
+            layer.weights = weights
+            layer.bias = bias
+            layers.append(layer)
+    return layers
+    
 
 def forward_propagate(layers: list[DenseLayer], X):
-    output = X
+    caches = []
+    A = X
     for layer in layers:
-        output = layer.forward_propagation(output)
-    return output
+        A, Z = layer.forward_propagation(A)
+        caches.append((A, Z))
+    return A, caches
 
-def backward_propagate(layers: list[DenseLayer], X: np.ndarray, y: np.ndarray, alpha: float, lamda: float):
-    output = X
-    activations = []
+# Calculates the gradient and updates the variables
+def backward_propagate(layers: list[DenseLayer], y: np.ndarray, alpha: float, lamda: float, num_labels: int, caches, return_grad: bool = False):
+    m = y.shape[0]
+    # print(m)
+    dZ_next = np.zeros((m, num_labels))
+    y = np.reshape(y, (-1, 1))
+    prediction = caches[-1][0]
+    for i in range(num_labels):
+        temp_y = y == i
+        temp_prediction = np.reshape(prediction[:, i], (-1, 1))
+        dZ_next[:, i:i+1] = (temp_prediction - temp_y)
+    
+    for i in range(layers.__len__() - 2, -1, -1):
+        A, Z = caches[i]
+        layer = layers[i]
+        dW = (1 / m) * np.dot(A.T, dZ_next).T + lamda / m * layers[i + 1].weights
+        db = (1 / m) * np.reshape(np.sum(dZ_next, 0).T, (-1, 1))
+
+        # print(f"dW{i + 1} = {dW}\n db{i+1} = {db}")
+        if not layer.is_input:
+            dA = np.dot(dZ_next, layers[i + 1].weights)
+            dZ = np.multiply(dA, layers[i + 1].activation_prime(Z))
+            dZ_next = dZ
+        
+        # Updating Weights
+        layers[i + 1].weights -= alpha * dW
+        layers[i + 1].bias -= alpha * db
+
+#Checks whether the gradient value is correctly calculated or not
+def check_gradient(layers: list[DenseLayer], epsilon: float, X: np.ndarray, y: np.ndarray, num_labels: int, alpha: float, lamda: float):
+    gradient = backward_propagate(layers, y, alpha, lamda, num_labels,[], True)
+    initial_weights = None
+    total_grad = np.array([])
+    first_run = True
     for layer in layers:
-        output = layer.forward_propagation(output)
-        activations.append(output)
+        if layer.is_input:
+            continue
+        if first_run:
+            initial_weights = np.reshape(layer.weights, (-1, 1))
+        else:
+            initial_weights = np.append(initial_weights, np.reshape(layer.weights, (-1, 1)), 0)
+        first_run = False
+    
+    for grad in gradient:
+        total_grad = np.append(total_grad, np.reshape(grad, (-1,  1)))
+    temp_weights = np.zeros(initial_weights.shape)
+    numerical_grad = np.zeros(initial_weights.shape)
+    for r in range(0, temp_weights.shape[0]):
+        for c in range(0, temp_weights.shape[1]):
+            temp_weights[r, c] = epsilon
+            weights = initial_weights + temp_weights
+            cost1 = calculate_loss(layers, weights, X, y, num_labels, lamda)
+            weights = initial_weights - temp_weights
+            cost2 = calculate_loss(layers, weights, X, y, num_labels, lamda)
+            numerical_grad[r, c] = (cost1 - cost2) / (2 * epsilon)
+            temp_weights[r, c] = 0
 
-    errors = []
-    next_error = []
-    for i in range(layers.__len__() - 1, 0, -1):
-        layer = layers[i]
-        next_error = layer.calculate_error(activations[i - 1], y, None if layer.is_output else next_error, None if layer.is_output else layers[i + 1].weights)
-        errors.insert(0, next_error)
+    set_weights(layers, initial_weights)
+    # return np.linalg.norm(gradient - numerical_grad) / np.linalg.norm(numerical_grad + gradient)
+    return np.linalg.norm(np.abs(total_grad - numerical_grad)) / np.linalg.norm(np.abs(total_grad) + np.abs(numerical_grad))
 
-    for i in range(layers.__len__() - 1, 0, -1):
-        layer = layers[i]
-        layer.back_propagation(activations[i - 1], errors[i - 1], lamda, alpha)
-            
-def train(layers: list[DenseLayer], 
-          X: np.ndarray, 
-          y: np.ndarray, 
-          num_labels: int, 
-          epochs: int, 
-          alpha: float, 
+# Calculates loss
+def calculate_loss(layers: list[DenseLayer], weights: np.ndarray, X: np.ndarray, y: np.ndarray, num_labels: int, lamda: float):
+    # Setting new weights
+    set_weights(layers, weights)
+    # Forward Propagating the layers
+    predictions = forward_propagate(layers, X)
+    return layers[-1].loss(predictions, y, num_labels)
+
+# Assigns the weights from the list
+def set_weights(layers: list[DenseLayer], weights: np.ndarray):
+    # Setting new weights
+    weight_index = 0
+    for layer in layers:
+        if layer.is_input:
+            continue
+        weights_size = layer.weights.shape[0] * layer.weights.shape[1]
+        layer.weights = np.reshape(weights[weight_index:weight_index + weights_size], layer.weights.shape)
+        weight_index += weights_size
+
+def train(layers: list[DenseLayer],
+          X: np.ndarray,
+          y: np.ndarray,
+          num_labels: int,
+          epochs: int,
+          batch_size: int,
+          alpha: float,
           lamda: float,
           validation_X: np.ndarray,
           validation_y: np.ndarray,
-          validate: bool = False, 
-          display_method= None, 
+          validate: bool = False,
+          display_method= None,
           epoch_operation = None):
-    # with Live(save_dvc_exp=True) as live:
-    # live.log_param("Learning Rate", learning_rate)
-    history = {
-        "loss": [],
-    }
+    history = {"loss": [], "val_loss": []}
     m = X.shape[0]
-    if validate:
-        history['val_loss'] = []
+    for epoch in tqdm(range(epochs)):
+        startPoint = 0
+        endPoint = batch_size
 
-    for i in tqdm(range(epochs)):
+        batch_losses = []
+        val_batch_losses = []
 
-        if epoch_operation != None:
+        while endPoint <= m:
+            batch_X = X[startPoint:endPoint, :]
+            batch_y = y[startPoint:endPoint]
+            startPoint = endPoint
+            endPoint = startPoint + batch_size
+
+            # Forward Propagation
+            prediction, caches = forward_propagate(layers, batch_X)
+
+            # Calculating loss
+            loss = layers[-1].loss(prediction, batch_y, num_labels, lamda)
+            batch_losses.append(loss)
+
+            # Doing back propagation
+            backward_propagate(layers, batch_y, alpha, lamda, num_labels, caches, False)
+        
+        epoch_loss = np.average(batch_losses)
+        history["loss"].append(epoch_loss)
+
+        print_str = f'Epoch: {epoch} -> Loss: {round(epoch_loss, 2)}'
+
+        # Validation
+        if validate:
+            startPoint = 0
+            endPoint = batch_size
+            val_m = validation_X.shape[0]
+            while endPoint < val_m:
+                batch_X = validation_X[startPoint:endPoint, :]
+                batch_y = validation_y[startPoint:endPoint]
+                startPoint = endPoint
+                endPoint = startPoint + batch_size
+
+                # Forward Propagation
+                prediction, caches = forward_propagate(layers, batch_X)
+
+                # Calculating loss
+                loss = layers[-1].loss(prediction, batch_y, num_labels, lamda)
+                val_batch_losses.append(loss)
+            
+            val_loss = np.average(val_batch_losses)
+            history["val_loss"].append(val_loss)
+            print_str += f', Validation Loss: {round(val_loss, 2)}'
+
+        if epoch_operation is not None:
             epoch_operation()
 
-        output = X
-        # live.log_param('Epoch', i)
-        for j in range(layers.__len__() - 1):
-            output = layers[j].forward_propagation(output)
-        loss = layers[-1].loss(output, y, num_labels, lamda)
-
-        for j in range(layers.__len__() - 2, -1, -1):
-            loss += (lamda / (2 * m)) * np.sum(np.square(layers[j].weights))
-
-        epoch_message = f'Epoch: {i + 1}, Training Loss: {round(loss, 2)}'
-
-        if validate:
-            val_output = validation_X
-            for j in range(layers.__len__() - 1):
-                val_output = layers[j].forward_propagation(val_output)
-            val_loss = layers[-1].loss(val_output, validation_y, num_labels, lamda)
-
-            for j in range(layers.__len__() - 2, -1, -1):
-                val_loss += (lamda / (2 * m)) * np.sum(np.square(layers[j].weights))
-
-            epoch_message += f", Validation Loss: {round(val_loss, 2)}"
-            history['val_loss'].append(val_loss)
-        
         if display_method is None:
-            print(epoch_message)
+            print(print_str)
         else:
-            display_method(epoch_message)
+            display_method(print_str)
 
-        history['loss'].append(loss)
-        # live.log_metric("Loss", loss)
-        backward_propagate(layers, X, y, alpha, lamda)
-
-        # live.next_step()
     return history
-
-def check_gradient(layers: list[DenseLayer], epsilon: float, X: np.ndarray, y:np.ndarray, num_labels: int, alpha: float, lamda: float):
-    output = X
-    activations = []
-    for layer in layers:
-        output = layer.forward_propagation(output)
-        activations.append(output)
-
-    errors = []
-    next_error = []
-    for i in range(layers.__len__() - 1, 0, -1):
-        layer = layers[i]
-        next_error = layer.calculate_error(activations[i - 1], y, None if layer.is_output else next_error, None if layer.is_output else layers[i + 1].weights)
-        errors.insert(0, next_error)
-
-    return layers[-1].check_gradient(epsilon, activations[-2], y, errors[-1], num_labels, alpha, lamda)
-
