@@ -1,7 +1,7 @@
 README.md
 setup.py
 numpy_neural_network/__init__.py
-numpy_neural_network/activations.py
+numpy_neural_network/activation_methods.py
 numpy_neural_network/dataloader.py
 numpy_neural_network/nn.py
 numpy_neural_network/plots.py

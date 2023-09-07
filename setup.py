@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='numpy_neural_network',
-    version='0.1.4',    
+    version='0.1.8',    
     description='A custom neural network implementation in numpy.',
     url='https://github.com/AsimWattoo/Numpy_NN_Package.git',
     author='Muhammad Asim',

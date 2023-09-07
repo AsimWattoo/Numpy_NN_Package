@@ -1,7 +1,7 @@
 import numpy as np
 from tqdm import tqdm
 import h5py
-import activations
+import numpy_neural_network.activation_methods as activation_methods
 
 class DenseLayer():
     def __init__(self, num_neurons, inputs, activation, is_input = False, is_output = False):
@@ -11,14 +11,14 @@ class DenseLayer():
         self.bias = np.zeros((num_neurons, 1))
         self.activation_name = activation
         if activation == 'sigmoid':
-            self.activation = activations.sigmoid
-            self.activation_prime = activations.sigmoid_prime
+            self.activation = activation_methods.sigmoid
+            self.activation_prime = activation_methods.sigmoid_prime
         elif activation == 'softmax':
-            self.activation = activations.softmax
-            self.activation_prime = activations.softmax_prime
+            self.activation = activation_methods.softmax
+            self.activation_prime = activation_methods.softmax_prime
         else:
-            self.activation = activations.dummy_activation
-            self.activation_prime = activations.dummy_activation
+            self.activation = activation_methods.dummy_activation
+            self.activation_prime = activation_methods.dummy_activation
         self.is_output = is_output
         self.is_input = is_input
 
